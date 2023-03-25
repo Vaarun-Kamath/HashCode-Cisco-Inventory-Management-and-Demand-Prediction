@@ -1,12 +1,21 @@
 # front end UI
 
+import data
+
 import pygame
 from pygame.locals import *
 pygame.font.init()
 
+from tkinter.filedialog import asksaveasfilename as tksave
+from tkinter.filedialog import askopenfilename as tkopen
+from tkinter import Tk
+
+root = Tk()
+root.withdraw()
+
 label_height = 50
-label_pad = 15
-label_height_total = label_height + label_pad
+padding = 15
+label_height_total = label_height + padding
 
 box_width = 400
 
@@ -17,13 +26,15 @@ c = type('c', (), {'__matmul__': (lambda s, x: (*x.to_bytes(3, 'big'),)), '__sub
 bg = c@0xfff8fe
 fg = c@0x080310
 
+hint_colour = c--80
+
 box_colour = c--20
 selected_box_colour = c--42
 hover_box_colour = c--32
 
 button_colour = c@0x80e040
 hover_button_colour = c@0xa0f080
-selected_button_colour = c@0x609030
+selected_button_colour = c@0x80c040
 
 divider_colour = c--20
 
@@ -32,7 +43,7 @@ NONE, HOVER, SELECTED, *_ = range(4)
 
 fps = 144
 
-w, h = res = (1500, 800)
+w, h = res = (1700, 850)
 
 def updateStat(msg = None, update = True):
 	rect = (0, h-20, w, 21)
@@ -66,15 +77,15 @@ def updateDisplay():
 		surf = field.render(state)
 		display.blit(surf, (0, y + i*label_height_total))
 
-	if mouse_pos_rect not in button.get_rect():
+	if mouse_pos_rect not in submit_button.get_rect():
 		# if pygame.mouse.get_pressed(3): print(pygame.mouse.get_pressed())
 		state = NONE
 	elif pygame.mouse.get_pressed(3)[0]:
 		state = SELECTED
 	else:
 		state = HOVER
-	button_surf = button.render(state)
-	display.blit(button_surf, (button.get_x(), button.get_y()))
+	button_surf = submit_button.render(state)
+	display.blit(button_surf, (submit_button.get_x(), submit_button.get_y()))
 
 	# OUTPUT DIVIDER
 	display.fill(divider_colour, (w//2, 0, 2, h+1))
@@ -99,9 +110,10 @@ class InputField:
 	def __init__(self, label):
 		self.label = label
 		self.text = ''
+		self.hint = ''
 	
 	def render(self, state):
-		surf_width = w//4 + label_pad + box_width
+		surf_width = w//4 + padding + box_width
 
 		if   state is SELECTED: col = selected_box_colour
 		elif state is HOVER: col = hover_box_colour
@@ -109,35 +121,32 @@ class InputField:
 
 		lsurf = font.render(self.label, True, fg)
 		out = pygame.Surface((surf_width, label_height), SRCALPHA)
-		tx = surf_width-label_pad - box_width - lsurf.get_width()
+		tx = surf_width-padding - box_width - lsurf.get_width()
 		out.blit(lsurf, (tx, 0))
 
-		tx = w//4 + label_pad
+		tx = w//4 + padding
 		out.fill(col, (tx, 0, box_width, label_height+1))
 
-		tsurf = font.render(self.text, True, c-0)
-		out.blit(tsurf, (tx+label_pad, 0))
+		if state is SELECTED:
+			hsurf = font.render(self.hint, True, hint_colour)
+			out.blit(hsurf, (tx+padding, 0))
+		tsurf = font.render(self.text, True, fg)
+		out.blit(tsurf, (tx+padding, 0))
 
 		return out
 
 
-class SubmitButton:
+class Button:
 	def __init__(self, label, w, h):
 		self.label = label
 		self.w = w
 		self.h = h
 
-	def handler(self):
-		inputs = [field.text for field in fields]
-		# send inputs to ML
-		print('we did the thing')
-
 	def get_x(self):
-		return ((w//2-self.w)//2)
+		return NotImplemented
 
 	def get_y(self):
-		y = (h - len(fields) * (label_height_total)) // 2
-		return (y+label_height_total*(len(fields)+1))
+		return NotImplemented
 
 	def get_rect(self):
 		return pygame.Rect(self.get_x(), self.get_y(), self.w, self.h)
@@ -159,10 +168,40 @@ class SubmitButton:
 		out.blit(tsurf, (x, y))
 		return out
 
+	def handler(self):
+		return NotImplemented
+
+class SubmitButton(Button):
+	def handler(self):
+		inputs = [field.text for field in fields]
+		# send inputs to ML
+		print('we did the thing')
+
+	def get_x(self):
+		# return w//4 + padding
+		return (w//2 - self.w)//2
+
+	def get_y(self):
+		y = (h - len(fields) * (label_height_total)) // 2
+		return (y+label_height_total*(len(fields)+1))
+
+def get_next_hint(curr_hint, pref):
+	ready = not curr_hint
+	for plid in data.plids:
+		if plid.startswith(pref):
+			if ready: break
+			print('readying', plid)
+			if plid == curr_hint: ready = True
+	else:
+		if curr_hint: return get_next_hint('', pref)
+		return ''
+
+	print('returning', plid)
+	return plid
 
 fields = (
 
-	# input labels and submit button
+	# input labels and submit submit_button
 	# INPUTS:
 	# [SUS] plid
 	# fiscal quarter
@@ -177,7 +216,7 @@ fields = (
 	InputField('fiscal month'),
 )
 
-button = SubmitButton('Do the Thing', 400, 100)
+submit_button = SubmitButton('Do the Thing', 400, 100)
 
 pos = [0, 0]
 dragging = False
@@ -208,7 +247,18 @@ while running:
 					else: curr_field.text = split[0]
 				elif event.key == K_v:
 					... # paste
+			elif event.key == K_ESCAPE:
+				curr_field.hint = ''
+				continue
+			elif event.key == K_RETURN:
+				if curr_field.hint:
+					curr_field.text = curr_field.hint
+					curr_field.hint = ''
+					continue
 			elif event.key == K_TAB:
+				if curr_field.hint:
+					curr_field.hint = get_next_hint(curr_field.hint, curr_field.text)
+					continue
 				curr_field_index += 1
 				if curr_field_index >= len(fields): curr_field_index = 0
 				curr_field = fields[curr_field_index]
@@ -216,6 +266,14 @@ while running:
 				curr_field.text = curr_field.text[:-1]
 			elif event.unicode and event.unicode.isprintable():
 				curr_field.text += event.unicode
+			else:
+				continue
+
+			if curr_field is not None and curr_field.label == 'plid':
+				if curr_field.text:
+					curr_field.hint = get_next_hint('', curr_field.text)
+				else:
+					curr_field.hint = ''
 
 		elif event.type == VIDEORESIZE:
 			if not display.get_flags()&FULLSCREEN: resize(event.size)
@@ -233,8 +291,8 @@ while running:
 				if y%label_height_total > label_height: curr_field = None; curr_field_index = None; continue
 				curr_field_index = y // label_height_total
 				if curr_field_index >= len(fields):
-					if (event.pos, (1,  1)) in button.get_rect():
-						button.handler()
+					if (event.pos, (1,  1)) in submit_button.get_rect():
+						submit_button.handler()
 					curr_field = None; curr_field_index = None; continue
 				if curr_field_index < 0: curr_field = None; curr_field_index = None; continue
 				curr_field = fields[curr_field_index]
