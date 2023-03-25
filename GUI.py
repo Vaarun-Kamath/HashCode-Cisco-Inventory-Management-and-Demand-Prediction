@@ -14,13 +14,15 @@ root = Tk()
 root.withdraw()
 
 label_height = 50
-padding = 15
+padding = 20
 label_height_total = label_height + padding
 
-box_width = 400
+box_width = 450
 
 font = pygame.font.SysFont('Cascadia Mono Regular', label_height*4//5)
+sfont = pygame.font.SysFont('Segoe UI', label_height*4//5)
 bfont = pygame.font.SysFont('Segoe UI', label_height*4//5)
+# bfont = pygame.font.Font('SegoeUIB.ttf', label_height*4//5)
 
 c = type('c', (), {'__matmul__': (lambda s, x: (*x.to_bytes(3, 'big'),)), '__sub__': (lambda s, x: (x&255,)*3)})()
 bg = c@0xfff8fe
@@ -36,14 +38,14 @@ button_colour = c@0x80e040
 hover_button_colour = c@0xa0f080
 selected_button_colour = c@0x80c040
 
-divider_colour = c--20
+divider_colour = c--25
 
 # box_states
 NONE, HOVER, SELECTED, *_ = range(4)
 
 fps = 144
 
-w, h = res = (1700, 850)
+w, h = res = (1800, 900)
 
 def updateStat(msg = None, update = True):
 	rect = (0, h-20, w, 21)
@@ -87,14 +89,13 @@ def updateDisplay():
 	button_surf = submit_button.render(state)
 	display.blit(button_surf, (submit_button.get_x(), submit_button.get_y()))
 
-	# OUTPUT DIVIDER
-	display.fill(divider_colour, (w//2, 0, 2, h+1))
-
-
-	outs_surf = bfont.render('OUTPUT YELLI?', True, fg)
+	outs_surf = render_outputs(inputs)
 	x = w//2 + (w//2 - outs_surf.get_width())//2
 	y = (h - outs_surf.get_height()) // 2
 	display.blit(outs_surf, (x, y))
+
+	# OUTPUT DIVIDER
+	display.fill(divider_colour, (w//2, 75, 2, h-150))
 
 	# updateStat(update = False)
 	pygame.display.flip()
@@ -107,13 +108,14 @@ def toggleFullscreen():
 	else: display = pygame.display.set_mode(res, FULLSCREEN); updateDisplay()
 
 class InputField:
-	def __init__(self, label):
+	def __init__(self, label, data):
 		self.label = label
 		self.text = ''
 		self.hint = ''
+		self.data = data
 	
 	def render(self, state):
-		surf_width = w//4 + padding + box_width
+		surf_width = w//5 + padding + box_width
 
 		if   state is SELECTED: col = selected_box_colour
 		elif state is HOVER: col = hover_box_colour
@@ -124,7 +126,7 @@ class InputField:
 		tx = surf_width-padding - box_width - lsurf.get_width()
 		out.blit(lsurf, (tx, 0))
 
-		tx = w//4 + padding
+		tx += lsurf.get_width() + padding
 		out.fill(col, (tx, 0, box_width, label_height+1))
 
 		if state is SELECTED:
@@ -134,7 +136,6 @@ class InputField:
 		out.blit(tsurf, (tx+padding, 0))
 
 		return out
-
 
 class Button:
 	def __init__(self, label, w, h):
@@ -173,9 +174,11 @@ class Button:
 
 class SubmitButton(Button):
 	def handler(self):
+		global outputs, inputs
 		inputs = [field.text for field in fields]
 		# send inputs to ML
 		print('we did the thing')
+		outputs = get_outputs(*inputs)
 
 	def get_x(self):
 		# return w//4 + padding
@@ -185,44 +188,85 @@ class SubmitButton(Button):
 		y = (h - len(fields) * (label_height_total)) // 2
 		return (y+label_height_total*(len(fields)+1))
 
-def get_next_hint(curr_hint, pref):
+def get_next_hint(curr_hint, pref, data):
 	ready = not curr_hint
-	for plid in data.plids:
+	for plid in data:
 		if plid.startswith(pref):
 			if ready: break
-			print('readying', plid)
 			if plid == curr_hint: ready = True
 	else:
-		if curr_hint: return get_next_hint('', pref)
+		if curr_hint: return get_next_hint('', pref, data)
 		return ''
 
-	print('returning', plid)
+	if plid == curr_hint: return ''
 	return plid
+
+def get_outputs(plid, quarter, month):
+	# talks to "backend"
+
+	try:
+		year = int(quarter[-4:])
+		quarter = quarter[:2]
+		month = (
+			'JAN',
+			'FEB',
+			'MAR',
+			'APR',
+			'MAY',
+			'JUN',
+			'JUL',
+			'AUG',
+			'SEP',
+			'OCT',
+			'NOV',
+			'DEC',
+		).index(month[:3]) + 1
+		return [
+			str(backend.predict(plid, quarter, month, year))
+		]
+	except ValueError: return ['Invalid Input']
+
+def render_outputs(inputs):
+	global outputs
+
+	out_height = label_height_total * max(len(outputs), 1)
+	out = pygame.Surface((w//2, out_height), SRCALPHA)
+
+	if not outputs:
+		outputs.append('No predictions available yet.')
+
+	for i, o in enumerate(outputs):
+		tsurf = sfont.render(o, True, fg)
+		out.blit(tsurf, ((w//2 - tsurf.get_width())//2, label_height_total*i))
+
+	return out
 
 fields = (
 
 	# input labels and submit submit_button
 	# INPUTS:
-	# [SUS] plid
+	# plid
 	# fiscal quarter
 	# fiscal month
-	# booked quantity [OUT?]
+	# booked quantity [OUT.]
 	# booking date [OUT?]
-	# business unit [OUT.]
-	# product family [OUT.]
+	# business unit [IRR]
+	# product family [IRR]
 
-	InputField('plid'),
-	InputField('fiscal quarter'),
-	InputField('fiscal month'),
+	InputField('PLID', data.plids),
+	InputField('Fiscal Quarter', data.quarters),
+	InputField('Fiscal Month', data.months),
 )
 
-submit_button = SubmitButton('Do the Thing', 400, 100)
+submit_button = SubmitButton('Predict', 400, 100)
 
 pos = [0, 0]
 dragging = False
 curr_field = None
 curr_field_index = None
 
+inputs = [field.text for field in fields]
+outputs = []
 
 resize(res)
 pygame.key.set_repeat(500, 20)
@@ -257,7 +301,7 @@ while running:
 					continue
 			elif event.key == K_TAB:
 				if curr_field.hint:
-					curr_field.hint = get_next_hint(curr_field.hint, curr_field.text)
+					curr_field.hint = get_next_hint(curr_field.hint, curr_field.text, curr_field.data)
 					continue
 				curr_field_index += 1
 				if curr_field_index >= len(fields): curr_field_index = 0
@@ -269,11 +313,11 @@ while running:
 			else:
 				continue
 
-			if curr_field is not None and curr_field.label == 'plid':
-				if curr_field.text:
-					curr_field.hint = get_next_hint('', curr_field.text)
-				else:
-					curr_field.hint = ''
+			if curr_field is not None:
+				# if curr_field_index_field.text:
+					curr_field.hint = get_next_hint('', curr_field.text, curr_field.data)
+				# else:
+				# 	curr_field.hint = ''
 
 		elif event.type == VIDEORESIZE:
 			if not display.get_flags()&FULLSCREEN: resize(event.size)
