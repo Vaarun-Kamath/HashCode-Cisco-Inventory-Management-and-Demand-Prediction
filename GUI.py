@@ -1,17 +1,11 @@
 # front end UI
 
 import data
+import backend
 
 import pygame
 from pygame.locals import *
 pygame.font.init()
-
-from tkinter.filedialog import asksaveasfilename as tksave
-from tkinter.filedialog import askopenfilename as tkopen
-from tkinter import Tk
-
-root = Tk()
-root.withdraw()
 
 label_height = 50
 padding = 20
@@ -20,7 +14,7 @@ label_height_total = label_height + padding
 box_width = 450
 
 font = pygame.font.SysFont('Cascadia Mono Regular', label_height*4//5)
-sfont = pygame.font.SysFont('Segoe UI', label_height*4//5)
+sfont = pygame.font.SysFont('Segoe UI', label_height*5//4)
 bfont = pygame.font.SysFont('Segoe UI', label_height*4//5)
 # bfont = pygame.font.Font('SegoeUIB.ttf', label_height*4//5)
 
@@ -88,6 +82,16 @@ def updateDisplay():
 		state = HOVER
 	button_surf = submit_button.render(state)
 	display.blit(button_surf, (submit_button.get_x(), submit_button.get_y()))
+
+	if mouse_pos_rect not in submit_all_button.get_rect():
+		# if pygame.mouse.get_pressed(3): print(pygame.mouse.get_pressed())
+		state = NONE
+	elif pygame.mouse.get_pressed(3)[0]:
+		state = SELECTED
+	else:
+		state = HOVER
+	button_surf = submit_all_button.render(state)
+	display.blit(button_surf, (submit_all_button.get_x(), submit_all_button.get_y()))
 
 	outs_surf = render_outputs(inputs)
 	x = w//2 + (w//2 - outs_surf.get_width())//2
@@ -181,8 +185,24 @@ class SubmitButton(Button):
 		outputs = get_outputs(*inputs)
 
 	def get_x(self):
-		# return w//4 + padding
-		return (w//2 - self.w)//2
+		return w//4 - self.w - padding
+		# return (w//2 - self.w)//2
+
+	def get_y(self):
+		y = (h - len(fields) * (label_height_total)) // 2
+		return (y+label_height_total*(len(fields)+1))
+
+class SubmitAllButton(Button):
+	def handler(self):
+		global outputs, inputs
+		inputs = [field.text for field in fields]
+		# send inputs to ML
+		print('we did knapsack')
+		outputs = get_outputs(*inputs)
+
+	def get_x(self):
+		return w//4 + padding
+		# return (w//2 - self.w)//2
 
 	def get_y(self):
 		y = (h - len(fields) * (label_height_total)) // 2
@@ -207,29 +227,23 @@ def get_outputs(plid, quarter, month):
 	try:
 		year = int(quarter[-4:])
 		quarter = quarter[:2]
-		month = (
-			'JAN',
-			'FEB',
-			'MAR',
-			'APR',
-			'MAY',
-			'JUN',
-			'JUL',
-			'AUG',
-			'SEP',
-			'OCT',
-			'NOV',
-			'DEC',
-		).index(month[:3]) + 1
+		month = month[:3]
+
+		RMSE, m = backend.predict(plid, quarter, month, year)
+		m = m[0]
+
 		return [
-			str(backend.predict(plid, quarter, month, year))
+			f'Booked Quantity: {int(m)+1}',
+			f'RMSE: {RMSE:.02f}',
+			f'Business Unit: {data.business_units[plid][0]}',
+			f'Product Family: {data.business_units[plid][1]}',
 		]
 	except ValueError: return ['Invalid Input']
 
 def render_outputs(inputs):
 	global outputs
 
-	out_height = label_height_total * max(len(outputs), 1)
+	out_height = label_height_total * max(len(outputs), 1) + 2 * padding
 	out = pygame.Surface((w//2, out_height), SRCALPHA)
 
 	if not outputs:
@@ -237,7 +251,7 @@ def render_outputs(inputs):
 
 	for i, o in enumerate(outputs):
 		tsurf = sfont.render(o, True, fg)
-		out.blit(tsurf, ((w//2 - tsurf.get_width())//2, label_height_total*i))
+		out.blit(tsurf, ((w//2 - tsurf.get_width())//2, padding+label_height_total*i))
 
 	return out
 
@@ -258,7 +272,8 @@ fields = (
 	InputField('Fiscal Month', data.months),
 )
 
-submit_button = SubmitButton('Predict', 400, 100)
+submit_button = SubmitButton('Forecast', 400, 100)
+submit_all_button = SubmitAllButton('Forecast All', 400, 100)
 
 pos = [0, 0]
 dragging = False
@@ -337,6 +352,8 @@ while running:
 				if curr_field_index >= len(fields):
 					if (event.pos, (1,  1)) in submit_button.get_rect():
 						submit_button.handler()
+					elif (event.pos, (1, 1)) in submit_all_button.get_rect():
+						submit_all_button.handler()
 					curr_field = None; curr_field_index = None; continue
 				if curr_field_index < 0: curr_field = None; curr_field_index = None; continue
 				curr_field = fields[curr_field_index]
